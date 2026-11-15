@@ -1,5 +1,7 @@
 # opencode-luxafor-status
 
+[![opencode-luxafor-status demo](https://img.youtube.com/vi/6TBqzp_vGeM/hqdefault.jpg)](https://www.youtube.com/shorts/6TBqzp_vGeM)
+
 OpenCode plugin that mirrors the focused OpenCode session on a USB [Luxafor Flag](https://luxafor.com/flag-usb-busylight-availability-indicator/).
 
 The Flag follows only the *focused* session (the one a TUI is showing) plus its subagent sessions. Other sessions, including background sessions resumed after a service restart, do not affect it.
