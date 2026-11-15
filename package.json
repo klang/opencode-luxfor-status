@@ -1,0 +1,28 @@
+{
+  "name": "opencode-luxafor-status",
+  "version": "0.1.0",
+  "description": "OpenCode plugin: mirror agent activity (idle/busy/needs input/failed) on a USB Luxafor Flag.",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["opencode", "opencode-plugin", "luxafor"],
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "luxafor-flag": "./src/flag.mjs"
+  },
+  "files": ["src", "README.md", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "node-hid": "^3.4.0"
+  },
+  "peerDependencies": {
+    "@opencode/plugin": "*"
+  },
+  "peerDependenciesMeta": {
+    "@opencode/plugin": { "optional": true }
+  },
+  "devDependencies": {
+    "@opencode/plugin": "latest"
+  }
+}
