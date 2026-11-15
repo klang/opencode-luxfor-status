@@ -35,7 +35,7 @@ Create `.opencode/opencode.json` in the project whose OpenCode sessions the Flag
 
 - The path is relative to the `.opencode` directory and must start with `../` or `./` (a bare `..` is not recognised). In the example the package is a sibling of the project; adjust the number of `../` for your layout, or use an absolute path.
 - OpenCode reloads config on save; no restart is needed. The server log should show `loading plugin id=.../opencode-luxafor-status`.
-- With one physical Flag, keep the plugin in one place: a project-local config as above, or the global `~/.config/opencode/opencode.json` (`"plugins": ["/absolute/path/to/opencode-luxafor-status"]`), not both.
+- With one physical Flag, keep the plugin in one place: a project-local config as above, or the global `~/.config/opencode/opencode.json` (`"plugins": ["/absolute/path/to/opencode-luxafor-status"]`), not both. Every configured location runs its own plugin instance; see [Flag ownership](#flag-ownership).
 - Once published to npm: `"plugins": ["opencode-luxafor-status"]`.
 - To develop the plugin itself, use the same entry in this repository's own `.opencode/opencode.json`.
 
@@ -87,4 +87,8 @@ Pending prompts are also cleared when their session's run ends (succeeded, faile
 
 ## Terminal close detection
 
-The shared background service keeps running after a TUI closes, so the plugin polls `ps` every `pollMs` and looks for processes that have a tty and are `opencode` without a subcommand (`opencode`, `opencode -s ...`, `opencode <dir>`). With the default `terminalScope: "project"` only terminals whose working directory (via `lsof`) is inside the plugin's project count; with `"any"` every opencode terminal counts. When none are left the Flag goes off; when one appears again it resumes.
+The shared background service keeps running after a TUI closes, so the plugin polls `ps` every `pollMs` and looks for processes that have a tty and are `opencode` without a subcommand (`opencode`, `opencode -s ...`, `opencode <dir>`). With the default `terminalScope: "project"` only terminals whose working directory (via `lsof`) is inside the plugin's project count; with `"any"` every opencode terminal counts. When none are left the Flag goes off; when one appears again it resumes. An instance stays silent until its first terminal check has finished.
+
+## Flag ownership
+
+Each location that loads the plugin (and, briefly during `opencode reload`, the old and new copy) runs its own instance, all driving the same Flag. To keep them from fighting, the instance that last wrote a colour records itself as owner in `$TMPDIR/opencode-luxafor-status.owner` (`<server pid>:<random id>`). Only the owner may turn the Flag off, including on unload; an instance that never showed a colour (e.g. a project with no open terminal) never touches it. If the owner releases the Flag (turns it off) or its server process is gone, any instance with a non-off state shows its colour again on the next `pollMs` tick. When two instances both have something to show, the last one to change state wins and the Flag may switch between them. Configure the plugin in one place to avoid this.

@@ -1,5 +1,9 @@
 import { Plugin } from "@opencode/plugin"
 import { execFile, spawn } from "node:child_process"
+import { randomUUID } from "node:crypto"
+import { readFileSync, unlinkSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 // Mirrors the focused OpenCode session (and its subagents) onto a Luxafor Flag.
@@ -44,6 +48,27 @@ async function countTuis(dir?: string): Promise<number> {
 
 const FLAG = fileURLToPath(new URL("./flag.mjs", import.meta.url))
 
+// One Flag, many plugin instances (one per configured location, old + new across a reload). The instance that last
+// wrote a colour owns the Flag; only the owner may turn it off. Token = "<pid>:<random>" (instances share the server pid).
+const OWNER = join(tmpdir(), "opencode-luxafor-status.owner")
+const readOwner = () => {
+  try {
+    return readFileSync(OWNER, "utf8").trim()
+  } catch {
+    return ""
+  }
+}
+const ownerAlive = (owner: string) => {
+  const pid = Number(owner.split(":")[0])
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM"
+  }
+}
+
 export default Plugin.define({
   id: "luxafor-status",
   async setup(ctx) {
@@ -75,15 +100,39 @@ export default Plugin.define({
     let syncing = false
     let syncFailed = false
     let noTui = false // no interactive opencode terminal left
+    let tuiKnown = !closeOnExit // stay silent until the first terminal check, so a TUI-less instance never claims the Flag
     let shown: State | undefined
     let chain: Promise<void> = Promise.resolve()
     const timers = new Set<ReturnType<typeof setTimeout>>()
     const controller = new AbortController()
 
+    const token = `${process.pid}:${randomUUID()}`
+    let claimed = false // this instance has written a colour at some point
+    // Claim before showing a colour; turn off only if still the owner (or the owner is gone and we once owned it).
+    const mayWrite = (state: State) => {
+      if (state !== "off") {
+        try {
+          writeFileSync(OWNER, token)
+        } catch (err) {
+          console.error("luxafor-status: owner claim failed", err)
+        }
+        claimed = true
+        return true
+      }
+      const owner = readOwner()
+      const mine = owner === token
+      if (!mine && !(claimed && !(owner && ownerAlive(owner)))) return false
+      try {
+        if (owner) unlinkSync(OWNER)
+      } catch {}
+      return true
+    }
+
     const send = (state: State) =>
       (chain = chain.then(
         () =>
           new Promise<void>((resolve) => {
+            if (!mayWrite(state)) return resolve()
             const c = colors[state]
             // process.execPath is the opencode binary inside the server, not node.
             const p = spawn(node, [FLAG, c.mode ?? "solid", String(c.r), String(c.g), String(c.b)], {
@@ -115,7 +164,7 @@ export default Plugin.define({
       return "idle"
     }
     const refresh = () => {
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted || !tuiKnown) return
       const next = compute()
       if (next === shown) return
       shown = next
@@ -240,15 +289,22 @@ export default Plugin.define({
     })().catch((err) => console.error("luxafor-status: event stream ended", err))
 
     // The background service outlives the TUI, so watch for terminal processes instead.
-    const poll = setInterval(async () => {
-      void syncPending()
+    const checkTui = async () => {
       if (!closeOnExit) return
       const found = await countTuis(scopeDir)
       if (found < 0) return
-      const none = found === 0
-      if (none === noTui) return
-      noTui = none
+      noTui = found === 0
+      tuiKnown = true
       refresh()
+    }
+    const poll = setInterval(async () => {
+      void syncPending()
+      await checkTui()
+      // Another instance turned the Flag off (or its server died): show our colour again.
+      if (shown && shown !== "off" && !controller.signal.aborted) {
+        const owner = readOwner()
+        if (!owner || !ownerAlive(owner)) void send(shown)
+      }
     }, pollMs)
 
     // Initial focus: the most recently viewed root session at this location (none -> idle until one is viewed).
@@ -268,6 +324,7 @@ export default Plugin.define({
     })()
 
     refresh()
+    void checkTui()
     return () => {
       clearInterval(poll)
       controller.abort()
